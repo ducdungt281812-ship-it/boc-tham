@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phần mềm Bốc thăm Bảng đấu & Xếp nhánh</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Mặc định ẩn vùng in chuyên dụng khi hiển thị trên web */
+        #printOnlyContainer {
+            display: none;
+        }
+
+        /* Cấu hình tối ưu khi bấm In / Lưu PDF */
+        @media print {
+            body > *:not(#printOnlyContainer) {
+                display: none !important;
+            }
+            #printOnlyContainer {
+                display: block !important;
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                padding: 10px;
+            }
+            @page {
+                size: landscape;
+                margin: 5mm;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans h-screen overflow-hidden flex flex-col">
+    <!-- Header gọn gàng trên cùng -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex justify-between items-center shrink-0">
+        <div>
+            <h1 class="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+                Phần Mềm Bốc Thăm & Sơ Đồ Nhánh Đấu
+            </h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="detectedInfo" class="text-xs font-semibold text-cyan-400 bg-cyan-950/80 px-3 py-1.5 rounded-full border border-cyan-800/50">Chưa bốc thăm</span>
+            <button onclick="exportPDF()" class="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-lg shadow-rose-600/30 flex items-center gap-1.5">
+                <span>📄</span> Xuất / Lưu File PDF (1 Trang)
+            </button>
+        </div>
+    </header>
+
+    <!-- Nội dung giao diện trên web -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 p-4 overflow-hidden">
+        <!-- Cột quản lý đội -->
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg lg:col-span-1 flex flex-col h-full overflow-hidden">
+            <h2 class="text-sm font-bold mb-3 text-slate-200 flex items-center gap-2">
+                <span>🏆</span> Quản Lý Danh Sách Đội
+            </h2>
+            
+            <div class="mb-3 flex gap-2 shrink-0">
+                <input type="text" id="teamInput" placeholder="Nhập tên đội/VĐV..." class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none transition" onkeypress="handleKeyPress(event)">
+                <button onclick="addTeam()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-md">Thêm</button>
+            </div>
+
+            <div class="flex-1 border border-slate-800 rounded-lg overflow-y-auto p-2 mb-3 bg-slate-950/50 space-y-1.5">
+                <div class="flex justify-between items-center mb-1 px-1 text-[11px] font-bold text-slate-400 shrink-0">
+                    <span>DANH SÁCH (<span id="teamCount">0</span>)</span>
+                    <button onclick="clearAllTeams()" class="text-rose-400 hover:underline">Xóa tất cả</button>
+                </div>
+                <div id="teamListContainer" class="space-y-1">
+                    <p class="text-[11px] text-slate-500 italic text-center py-6">Chưa có đội nào.</p>
+                </div>
+            </div>
+
+            <button onclick="startDraw()" class="w-full shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold py-2.5 rounded-lg transition duration-200 shadow-md shadow-emerald-600/20">
+                🎲 Tiến Hành Bốc Thăm Ngay
+            </button>
+        </div>
+
+        <!-- Khu vực sơ đồ nhánh đấu trên web -->
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg lg:col-span-3 flex flex-col h-full overflow-hidden relative">
+            <div class="flex justify-between items-center mb-2 pb-2 border-b border-slate-800 shrink-0 pr-48">
+                <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <span>📊</span> Sơ Đồ Nhánh Thi Đấu
+                </h2>
+            </div>
+
+            <!-- BẢNG KẾT QUẢ GÓC TRÊN BÊN PHẢI (WEB) -->
+            <div class="absolute top-6 right-6 z-20 bg-slate-950/95 border border-slate-700 rounded-xl shadow-2xl w-56 overflow-hidden backdrop-blur-md">
+                <div class="bg-red-600 text-white font-extrabold text-center text-xs py-1.5 tracking-wider uppercase">
+                    KẾT QUẢ
+                </div>
+                <div class="p-2 space-y-1.5 text-xs">
+                    <div class="flex justify-between items-center border-b border-slate-800/80 pb-1">
+                        <span class="font-bold text-amber-400">1. HCV:</span>
+                        <span id="resHCV" class="text-slate-300 font-semibold truncate max-w-[110px]">---</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-slate-800/80 pb-1">
+                        <span class="font-bold text-slate-300">2. HCB:</span>
+                        <span id="resHCB" class="text-slate-300 font-semibold truncate max-w-[110px]">---</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-slate-800/80 pb-1">
+                        <span class="font-bold text-amber-600">3. HCĐ:</span>
+                        <span id="resHCD1" class="text-slate-400 italic text-[11px]">Đồng hạng</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-amber-600">3. HCĐ:</span>
+                        <span id="resHCD2" class="text-slate-400 italic text-[11px]">Đồng hạng</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="bracketContainerWrapper" class="flex-1 overflow-auto relative bg-slate-950/80 rounded-lg border border-slate-800/80 p-6 flex items-center">
+                <div id="bracketArea" class="relative flex space-x-12 min-w-max items-center">
+                    <p class="text-slate-500 italic text-center w-full">Vui lòng thêm danh sách đội và bấm "Tiến hành Bốc thăm ngay".</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KHUNG IN / XUẤT PDF CHUYÊN DỤNG (Đảm bảo trọn vẹn, không khuất, nền trắng) -->
+    <div id="printOnlyContainer">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px;">
+            <h2 style="font-size: 16px; font-weight: bold; color: #0f172a; margin: 0;">SƠ ĐỒ NHÁNH ĐẤU & KẾT QUẢ GIẢI ĐẤU</h2>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; position: relative;">
+            <div id="printBracketArea" style="display: flex; gap: 30px; align-items: center;"></div>
+            <div style="border: 2px solid #0f172a; border-radius: 6px; width: 190px; background: #ffffff; padding: 0; overflow: hidden; margin-left: 20px;">
+                <div style="background: #dc2626; color: white; font-weight: bold; text-align: center; font-size: 11px; padding: 5px;">KẾT QUẢ</div>
+                <div style="padding: 6px 8px; font-size: 10px; color: #0f172a;">
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
+                        <b>1. HCV:</b> <span id="printResHCV">---</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
+                        <b>2. HCB:</b> <span id="printResHCB">---</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
+                        <b>3. HCĐ:</b> <i>Đồng hạng</i>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <b>3. HCĐ:</b> <i>Đồng hạng</i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let teams = [];
+
+        function addTeam() {
+            const input = document.getElementById('teamInput');
+            const name = input.value.trim();
+            if (!name) return;
+            if (teams.length >= 32) {
+                alert("Hệ thống hỗ trợ tối đa 32 đội!");
+                return;
+            }
+            teams.push(name);
+            input.value = '';
+            renderTeamList();
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') addTeam();
+        }
+
+        function removeTeam(index) {
+            teams.splice(index, 1);
+            renderTeamList();
+        }
+
+        function clearAllTeams() {
+            if (confirm("Xóa toàn bộ danh sách đội?")) {
+                teams = [];
+                renderTeamList();
+            }
+        }
+
+        function renderTeamList() {
+            const container = document.getElementById('teamListContainer');
+            document.getElementById('teamCount').innerText = teams.length;
+            if (teams.length === 0) {
+                container.innerHTML = `<p class="text-[11px] text-slate-500 italic text-center py-6">Chưa có đội nào.</p>`;
+                return;
+            }
+            let html = '';
+            teams.forEach((team, index) => {
+                html += `
+                    <div class="flex justify-between items-center bg-slate-900 border border-slate-800 px-2.5 py-1 rounded text-xs">
+                        <span class="truncate text-slate-200 font-medium"><span class="text-[10px] text-indigo-400 font-bold mr-1.5">#${index+1}</span>${team}</span>
+                        <button onclick="removeTeam(${index})" class="text-slate-500 hover:text-rose-400 text-xs font-bold px-1 rounded hover:bg-rose-950/40 transition">✕</button>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function getStandardOrder(size) {
+            if (size === 4) return [0, 3, 1, 2];
+            if (size === 8) return [0, 7, 3, 4, 1, 6, 2, 5];
+            if (size === 16) return [0, 15, 7, 8, 3, 12, 4, 11, 1, 14, 6, 9, 2, 13, 5, 10];
+            if (size === 32) return [0, 31, 15, 16, 7, 24, 8, 23, 3, 28, 12, 19, 4, 27, 11, 20, 1, 30, 14, 17, 6, 25, 9, 22, 2, 29, 13, 18, 5, 26, 10, 21];
+            return [];
+        }
+
+        function getTargetBracketSize(count) {
+            if (count <= 4) return 4;
+            if (count <= 8) return 8;
+            if (count <= 16) return 16;
+            return 32;
+        }
+
+        function startDraw() {
+            if (teams.length === 0) {
+                alert("Vui lòng nhập ít nhất một đội!");
+                return;
+            }
+
+            let targetSize = getTargetBracketSize(teams.length);
+            document.getElementById('detectedInfo').innerText = `Tổng: ${teams.length} đội -> Sơ đồ ${targetSize}`;
+
+            let workingTeams = [...teams];
+            while (workingTeams.length < targetSize) {
+                workingTeams.push("BYE");
+            }
+
+            const standardIndices = getStandardOrder(targetSize);
+            let round1Bracket = new Array(targetSize);
+            for (let i = 0; i < targetSize; i++) {
+                round1Bracket[standardIndices[i]] = workingTeams[i];
+            }
+
+            renderBracket(round1Bracket, targetSize);
+        }
+
+        function renderBracket(r1Teams, size) {
+            const area = document.getElementById('bracketArea');
+            const printArea = document.getElementById('printBracketArea');
+            let roundsCount = Math.log2(size);
+            
+            let roundsData = [];
+            roundsData.push(r1Teams);
+
+            let currentTeams = r1Teams;
+            for (let r = 0; r < roundsCount - 1; r++) {
+                let nextRoundTeams = [];
+                for (let i = 0; i < currentTeams.length; i += 2) {
+                    let t1 = currentTeams[i];
+                    let t2 = currentTeams[i+1];
+                    
+                    let winner = "---";
+                    if (t2 === "BYE" && t1 !== "BYE") {
+                        winner = t1;
+                    } else if (t1 === "BYE" && t2 !== "BYE") {
+                        winner = t2;
+                    } else if (t1 === "BYE" && t2 === "BYE") {
+                        winner = "BYE";
+                    }
+                    nextRoundTeams.push(winner);
+                }
+                roundsData.push(nextRoundTeams);
+                currentTeams = nextRoundTeams;
+            }
+
+            let finalMatch = roundsData[roundsCount - 1];
+            let champion = (finalMatch && finalMatch[0] && finalMatch[0] !== "---" && finalMatch[0] !== "BYE") ? finalMatch[0] : "---";
+            
+            let runnerUp = "---";
+            if (roundsCount >= 2) {
+                if (finalMatch) {
+                    if (finalMatch[0] !== "---" && finalMatch[1] !== "---" && finalMatch[0] !== finalMatch[1]) {
+                        runnerUp = (champion === finalMatch[0]) ? finalMatch[1] : finalMatch[0];
+                    }
+                }
+            }
+
+            document.getElementById('resHCV').innerText = champion;
+            document.getElementById('resHCB').innerText = runnerUp;
+            document.getElementById('printResHCV').innerText = champion;
+            document.getElementById('printResHCB').innerText = runnerUp;
+
+            let html = '';
+            let printHtml = '';
+            let roundNames = ["Vòng 1", "Tứ Kết", "Bán Kết", "Chung Kết"];
+
+            for (let r = 0; r < roundsCount; r++) {
+                let rName = r === roundsCount - 1 ? "Chung Kết" : (roundNames[r] || `Vòng ${r+1}`);
+                let matchesInRound = size / Math.pow(2, r + 1);
+
+                // Giao diện trên web
+                html += `<div class="flex flex-col justify-around space-y-4 w-56" data-round="${r}">`;
+                html += `<div class="text-center font-bold text-[11px] text-indigo-400 uppercase tracking-wider mb-2 bg-indigo-950/40 py-1 rounded border border-indigo-900/50">${rName}</div>`;
+
+                // Giao diện trang in sạch sẽ
+                printHtml += `<div style="display: flex; flex-direction: column; justify-content: space-around; gap: 12px; width: 155px;">`;
+                printHtml += `<div style="text-align: center; font-weight: bold; font-size: 10px; color: #475569; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px;">${rName}</div>`;
+
+                for (let m = 0; m < matchesInRound; m++) {
+                    let teamA, teamB;
+                    if (r === 0) {
+                        teamA = roundsData[0][m * 2];
+                        teamB = roundsData[0][m * 2 + 1];
+                    } else {
+                        teamA = roundsData[r][m * 2] || "---";
+                        teamB = roundsData[r][m * 2 + 1] || "---";
+                    }
+
+                    let isByeA = (teamA === "BYE" || teamA === "---");
+                    let isByeB = (teamB === "BYE" || teamB === "---");
+
+                    let styleA = isByeA ? "color: #94a3b8; font-style: italic;" : "color: #0f172a; font-weight: bold;";
+                    let styleB = isByeB ? "color: #94a3b8; font-style: italic;" : "color: #0f172a; font-weight: bold;";
+
+                    // Web match card
+                    html += `
+                        <div class="match-box bg-slate-900 border border-slate-800 rounded-lg shadow-md overflow-hidden relative" data-round="${r}" data-match="${m}">
+                            <div class="flex justify-between items-center text-[11px] px-3 py-2 bg-slate-900/90 border-b border-slate-800/80">
+                                <span class="truncate ${isByeA ? "text-slate-600 italic" : "text-slate-100 font-bold"}">${teamA}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-[11px] px-3 py-2 bg-slate-950/60">
+                                <span class="truncate ${isByeB ? "text-slate-600 italic" : "text-slate-100 font-bold"}">${teamB}</span>
+                            </div>
+                        </div>
+                    `;
+
+                    // Print match card
+                    printHtml += `
+                        <div style="border: 1px solid #94a3b8; border-radius: 5px; background: #ffffff; overflow: hidden; font-size: 10px;">
+                            <div style="padding: 5px 8px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ${styleA}">${teamA}</div>
+                            <div style="padding: 5px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ${styleB}">${teamB}</div>
+                        </div>
+                    `;
+                }
+                html += `</div>`;
+                printHtml += `</div>`;
+            }
+
+            area.innerHTML = html;
+            printArea.innerHTML = printHtml;
+            setTimeout(drawSvgConnectors, 50);
+        }
+
+        function drawSvgConnectors() {
+            const area = document.getElementById('bracketArea');
+            const wrapper = document.getElementById('bracketContainerWrapper');
+            
+            const oldSvg = wrapper.querySelector('svg');
+            if (oldSvg) oldSvg.remove();
+
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("class", "absolute top-0 left-0 pointer-events-none");
+            svg.style.width = area.scrollWidth + "px";
+            svg.style.height = area.scrollHeight + "px";
+
+            const roundCols = area.querySelectorAll('[data-round]');
+            const wrapperRect = wrapper.getBoundingClientRect();
+
+            for (let r = 0; r < roundCols.length - 1; r++) {
+                let currentMatches = roundCols[r].querySelectorAll('.match-box');
+                
+                for (let m = 0; m < currentMatches.length; m += 2) {
+                    if (m + 1 >= currentMatches.length) break;
+
+                    let box1 = currentMatches[m].getBoundingClientRect();
+                    let box2 = currentMatches[m + 1].getBoundingClientRect();
+                    
+                    let nextRoundMatches = roundCols[r + 1].querySelectorAll('.match-box');
+                    let nextMatchIndex = Math.floor(m / 2);
+                    if (nextMatchIndex >= nextRoundMatches.length) continue;
+                    let nextBox = nextRoundMatches[nextMatchIndex].getBoundingClientRect();
+
+                    let x1 = box1.right - wrapperRect.left + wrapper.scrollLeft;
+                    let y1 = box1.top + box1.height / 2 - wrapperRect.top + wrapper.scrollTop;
+
+                    let x2 = box2.right - wrapperRect.left + wrapper.scrollLeft;
+                    let y2 = box2.top + box2.height / 2 - wrapperRect.top + wrapper.scrollTop;
+
+                    let xNext = nextBox.left - wrapperRect.left + wrapper.scrollLeft;
+                    let yNext = nextBox.top + nextBox.height / 2 - wrapperRect.top + wrapper.scrollTop;
+
+                    let midX = (x1 + xNext) / 2;
+
+                    let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    let standardD = `M ${x1} ${y1} L ${midX} ${y1} M ${x2} ${y2} L ${midX} ${y2} M ${midX} ${y1} L ${midX} ${y2} M ${midX} ${(y1 + y2) / 2} L ${xNext} ${yNext}`;
+
+                    path.setAttribute("d", standardD);
+                    path.setAttribute("stroke", "#38bdf8");
+                    path.setAttribute("stroke-width", "2");
+                    path.setAttribute("fill", "none");
+                    path.setAttribute("stroke-linecap", "round");
+                    path.setAttribute("opacity", "0.8");
+
+                    svg.appendChild(path);
+                }
+            }
+
+            wrapper.appendChild(svg);
+        }
+
+        // Kích hoạt tính năng In / Xuất PDF
+        function exportPDF() {
+            const area = document.getElementById('bracketArea');
+            if (!area.querySelector('.match-box')) {
+                alert("Chưa có sơ đồ để xuất! Vui lòng bốc thăm trước.");
+                return;
+            }
+            window.print();
+        }
+
+        window.onload = function() {
+            teams = ["Đội Alpha", "Đội Beta", "Đội Gamma", "Đội Delta", "Đội Omega", "Đội Sigma", "Đội Zeta", "Đội Theta"];
+            renderTeamList();
+            startDraw();
+        };
+    </script>
+</body>
+</html>
